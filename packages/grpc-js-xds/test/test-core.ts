@@ -221,16 +221,15 @@ describe('core xDS functionality', () => {
     await routeGroup.waitForAllBackendsToReceiveTraffic();
     client.stopCalls();
 
-    // Trigger transient LDS deletion (control plane flap)
     xdsServer.unsetLdsResource('listener1');
 
-    // Verify call fails while resource is deleted
-    await new Promise<void>((resolve) => {
-      client.sendOneCall((error) => {
-        assert(error, 'Expected RPC to fail after LDS deletion');
-        resolve();
-      });
-    });
+    const deadline = Date.now() + 1000;
+    while (client.getConnectivityState() === connectivityState.READY && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    const error = await client.sendOneCallAsync();
+    assert(error, 'Expected RPC to fail after LDS deletion');
 
     // Restore identical LDS resource
     xdsServer.setLdsResource(routeGroup.getListener());
