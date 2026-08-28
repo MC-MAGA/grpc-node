@@ -150,7 +150,9 @@ class ResourceTimer {
     if (!resourceState) {
       return;
     }
-    resourceState.cachedResource = null;
+    if (resourceState.cachedResource !== null) {
+      return;
+    }
     resourceState.meta.clientStatus = 'DOES_NOT_EXIST';
     for (const watcher of resourceState.watchers) {
       watcher.onResourceDoesNotExist();
