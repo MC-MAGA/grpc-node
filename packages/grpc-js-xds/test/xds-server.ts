@@ -177,6 +177,11 @@ export class ControlPlaneServer {
     this.setResource({...resource, '@type': LDS_TYPE_URL}, resource.name!);
   }
 
+  unsetLdsResource(name: string) {
+    trace(`unsetLdsResource(${name})`);
+    this.unsetResource(LDS_TYPE_URL, name);
+  }
+
   setRdsResource(resource: RouteConfiguration) {
     trace(`setRdsResource(${resource.name!})`);
     this.setResource({...resource, '@type': RDS_TYPE_URL}, resource.name!);
@@ -209,7 +214,7 @@ export class ControlPlaneServer {
 
   private sendResourceUpdates<T extends AdsTypeUrl>(typeUrl: T, clients: Set<string>, includeResources: Set<string>) {
     const resourceTypeState = this.resourceMap[typeUrl] as ResourceTypeState<T>;
-    const clientResources = new Map<string, Any[]>();
+    const clientResources = new Map<string, Any[]>(Array.from(clients, client => [client, []]));
     for (const [resourceName, resourceState] of resourceTypeState.resourceNameMap) {
       /* For RDS and EDS, only send updates for the listed updated resources.
        * Otherwise include all resources. */

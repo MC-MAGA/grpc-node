@@ -150,6 +150,9 @@ class ResourceTimer {
     if (!resourceState) {
       return;
     }
+    if (resourceState.cachedResource !== null) {
+      return;
+    }
     resourceState.meta.clientStatus = 'DOES_NOT_EXIST';
     for (const watcher of resourceState.watchers) {
       watcher.onResourceDoesNotExist();
@@ -372,6 +375,7 @@ class AdsCallState {
                 experimental.log(logVerbosity.ERROR, 'Ignoring nonexistent resource ' + xdsResourceNameToString({authority, key}, result.type!.getTypeUrl()));
                 resourceState.deletionIgnored = true;
               } else {
+                resourceState.cachedResource = null;
                 resourceState.meta.clientStatus = 'DOES_NOT_EXIST';
                 process.nextTick(() => {
                   for (const watcher of resourceState.watchers) {
@@ -404,6 +408,13 @@ class AdsCallState {
     this.trace(
       'ADS stream ended. code=' + streamStatus.code + ' details= ' + streamStatus.details
     );
+    for (const typeState of this.typeStates.values()) {
+      for (const authorityMap of typeState.subscribedResources.values()) {
+        for (const timer of authorityMap.values()) {
+          timer.maybeCancelTimer();
+        }
+      }
+    }
     if (streamStatus.code !== status.OK && !this.receivedAnyResponse) {
       for (const watcher of this.allWatchers()) {
         watcher.onError(streamStatus);
@@ -458,6 +469,7 @@ class AdsCallState {
     if (!authorityMap) {
       return;
     }
+    authorityMap.get(name.key)?.maybeCancelTimer();
     authorityMap.delete(name.key);
     if (authorityMap.size === 0) {
       typeState.subscribedResources.delete(name.authority);
@@ -937,6 +949,9 @@ class XdsSingleServerClient {
     const metadata = new Metadata({waitForReady: true});
     const call = this.adsClient.StreamAggregatedResources(metadata);
     this.adsCallState = new AdsCallState(this, call, this.xdsClient.adsNode!);
+    if (this.adsClient.getChannel().getConnectivityState(false) === connectivityState.READY) {
+      this.adsCallState.markStreamStarted();
+    }
     this.adsBackoff.runOnce();
   }
 

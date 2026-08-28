@@ -197,5 +197,46 @@ describe('core xDS functionality', () => {
     xdsServer.setRdsResource(routeGroup2.getRouteConfiguration());
     await cluster2.waitForAllBackendsToReceiveTraffic();
     client.stopCalls();
-  })
+  });
+  it('should recover when a deleted LDS resource is restored with identical content', async () => {
+    const [backend] = await createBackends(1);
+    const serverRoute = new FakeServerRoute(backend.getPort(), 'serverRoute');
+    xdsServer.setRdsResource(serverRoute.getRouteConfiguration());
+    xdsServer.setLdsResource(serverRoute.getListener());
+    xdsServer.addResponseListener((typeUrl, responseState) => {
+      if (responseState.state === 'NACKED') {
+        client?.stopCalls();
+        assert.fail(`Client NACKED ${typeUrl} resource with message ${responseState.errorMessage}`);
+      }
+    });
+    const cluster = new FakeEdsCluster('cluster1', 'endpoint1', [{backends: [backend], locality: {region: 'region1'}}]);
+    const routeGroup = new FakeRouteGroup('listener1', 'route1', [{cluster: cluster}]);
+    await routeGroup.startAllBackends(xdsServer);
+    xdsServer.setEdsResource(cluster.getEndpointConfig());
+    xdsServer.setCdsResource(cluster.getClusterConfig());
+    xdsServer.setRdsResource(routeGroup.getRouteConfiguration());
+    xdsServer.setLdsResource(routeGroup.getListener());
+    client = XdsTestClient.createFromServer('listener1', xdsServer);
+    client.startCalls(100);
+    await routeGroup.waitForAllBackendsToReceiveTraffic();
+    client.stopCalls();
+
+    xdsServer.unsetLdsResource('listener1');
+
+    const deadline = Date.now() + 1000;
+    while (client.getConnectivityState() === connectivityState.READY && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    const error = await client.sendOneCallAsync();
+    assert(error, 'Expected RPC to fail after LDS deletion');
+
+    // Restore identical LDS resource
+    xdsServer.setLdsResource(routeGroup.getListener());
+
+    // Verify client recovers and traffic flows normally
+    client.startCalls(100);
+    await routeGroup.waitForAllBackendsToReceiveTraffic();
+    client.stopCalls();
+  });
 });
